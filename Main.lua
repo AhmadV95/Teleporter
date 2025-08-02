@@ -1,4 +1,140 @@
--- // SERVICES
+-- // FUNCTION: Teleport to exact same position as GIFTING player (only when actively sending gifts)
+local function teleportToGiftingPlayer(targetPlayer)
+    if not targetPlayer or not targetPlayer.Character then return end
+    
+    local targetChar = targetPlayer.Character
+    local targetHRP = targetChar:FindFirstChild("HumanoidRootPart")
+    if not targetHRP then return end
+    
+    local myChar = LocalPlayer.Character
+    if not myChar then return end
+    
+    local myHRP = myChar:FindFirstChild("HumanoidRootPart")
+    if not myHRP then return end
+    
+    -- Double-check that this player is actually gifting right now
+    local isCurrentlyGifting = false
+    for _, descendant in pairs(targetChar:GetDescendants()) do
+        if descendant:IsA("ProximityPrompt") then
+            local objectText = string.lower(descendant.ObjectText or "")
+            local actionText = string.lower(descendant.ActionText or "")
+            local giftKeywords = {"gift", "present", "reward", "give", "donate", "free"}
+            
+            for _, keyword in ipairs(giftKeywords) do
+                if string.find(objectText, keyword) or string.find(actionText, keyword) then
+                    isCurrentlyGifting = true
+                    break
+                end
+            end
+            if isCurrentlyGifting then break end
+        end
+    end
+    
+    if not isCurrentlyGifting then
+        print("Player " .. targetPlayer.Name .. " is no longer gifting - teleport cancelled")
+        return
+    end
+    
+    -- Teleport to EXACT same position as the GIFTING player
+    myHRP.CFrame = targetHRP.CFrame
+    
+    print("Teleported to GIFTING player: " .. targetPlayer.Name .. " at exact position!")
+    
+    -- Track this gifting player
+    activeGiftingPlayers[targetPlayer.Name] = {
+        player = targetPlayer,
+        timestamp = tick()
+    }
+    
+    -- Clean up after delay
+    task.delay(15, function()
+        if activeGiftingPlayers[targetPlayer.Name] then
+            activeGiftingPlayers[targetPlayer.Name] = nil
+            print("Removed " .. targetPlayer.Name .. " from active gifting list")
+        end
+    end)
+end
+
+-- // FUNCTION: Auto-accept gifts
+local function setupGiftAutoAccept()
+    -- Monitor for gift prompts that appear for the local player
+    local function checkForGiftPrompts()
+        if LocalPlayer.Character then
+            for _, descendant in pairs(LocalPlayer.Character:GetDescendants()) do
+                if descendant:IsA("ProximityPrompt") then
+                    local objectText = string.lower(descendant.ObjectText or "")
+                    local actionText = string.lower(descendant.ActionText or "")
+                    
+                    -- Check if this is a gift acceptance prompt
+                    local giftAcceptKeywords = {"accept", "claim", "take", "receive", "get"}
+                    local isGiftAcceptPrompt = false
+                    
+                    for _, keyword in ipairs(giftAcceptKeywords) do
+                        if string.find(objectText, keyword) or string.find(actionText, keyword) then
+                            isGiftAcceptPrompt = true
+                            break
+                        end
+                    end
+                    
+                    if isGiftAcceptPrompt then
+                        print("Auto-accepting gift!")
+                        descendant:InputHoldBegin()
+                        task.wait(0.1)
+                        descendant:InputHoldEnd()
+                        
+                        -- Update search GUI
+                        searchLabel.Text = "🎁 Gift auto-accepted!"
+                        searchStroke.Color = Color3.fromRGB(0, 255, 255)
+                        
+                        task.delay(2, function()
+                            searchLabel.Text = "🔍 Searching for gifts on server..."
+                            searchStroke.Color = Color3.fromRGB(255, 165, 0)
+                        end)
+                    end
+                end
+            end
+        end
+    end
+    
+    -- Also check PlayerGui for gift acceptance prompts
+    local function checkPlayerGuiForGifts()
+        for _, gui in pairs(PlayerGui:GetDescendants()) do
+            if gui:IsA("ProximityPrompt") then
+                local objectText = string.lower(gui.ObjectText or "")
+                local actionText = string.lower(gui.ActionText or "")
+                
+                local giftAcceptKeywords = {"accept", "claim", "take", "receive", "get"}
+                local isGiftAcceptPrompt = false
+                
+                for _, keyword in ipairs(giftAcceptKeywords) do
+                    if string.find(objectText, keyword) or string.find(actionText, keyword) then
+                        isGiftAcceptPrompt = true
+                        break
+                    end
+                end
+                
+                if isGiftAcceptPrompt then
+                    print("Auto-accepting gift from GUI!")
+                    gui:InputHoldBegin()
+                    task.wait(0.1)
+                    gui:InputHoldEnd()
+                end
+            end
+        end
+    end
+    
+    -- Run checks continuously
+    spawn(function()
+        while true do
+            checkForGiftPrompts()
+            checkPlayerGuiForGifts()
+            task.wait(0.5)
+        end
+    end)
+end
+
+-- Start auto-accept system
+setupGiftAutoAccept()-- // SERVICES
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 local RunService = game:GetService("RunService")
@@ -20,9 +156,17 @@ local processedPrompts = {}
 local isDragging = false
 local dragStart = nil
 local startPos = nil
-local canTeleport = false
 local activeGiftingPlayers = {}
 local giftAcceptConnections = {}
+local hasDetectedGifting = false
+local predictiveTracking = {}
+local giftPredictionKeywords = {
+    -- Chat patterns that indicate gifting is about to happen
+    "giving gift", "gifting", "free gift", "gift time", "gifts here", 
+    "come get", "free stuff", "giving away", "gift drop", "gift giveaway",
+    "first come", "quick gift", "gift now", "gift party", "gift event"
+}
+local chatConnections = {}
 
 -- // CREATE NOTIFICATION UI
 local screenGui = Instance.new("ScreenGui")
@@ -298,7 +442,7 @@ end
 -- Start auto-accept system
 setupGiftAutoAccept()
 
--- // IMPROVED DETECTION SYSTEM
+-- // IMPROVED DETECTION SYSTEM - Only teleport when NEW gifting is detected
 local connection
 connection = RunService.Heartbeat:Connect(function()
     -- Safety check
@@ -330,21 +474,27 @@ connection = RunService.Heartbeat:Connect(function()
                         
                         if isGiftPrompt then
                             processedPrompts[promptId] = true
+                            hasDetectedGifting = true
+                            
+                            -- Show notification
                             showNotification(player.Name)
-                            teleportToPlayer(player)
+                            
+                            -- ONLY teleport when we detect a NEW gifting player
+                            print("🎁 NEW GIFTING DETECTED! Teleporting to: " .. player.Name)
+                            teleportToGiftingPlayer(player)
                             
                             -- Update search GUI to show found status
-                            searchLabel.Text = "✅ Gift found! Teleported to " .. player.Name
+                            searchLabel.Text = "✅ Gifting player found! → " .. player.Name
                             searchStroke.Color = Color3.fromRGB(0, 255, 0)
                             
                             -- Reset search GUI after delay
-                            task.delay(3, function()
+                            task.delay(5, function()
                                 searchLabel.Text = "🔍 Searching for gifts on server..."
                                 searchStroke.Color = Color3.fromRGB(255, 165, 0)
                             end)
                             
                             -- Clean up processed prompts after delay
-                            task.delay(10, function()
+                            task.delay(15, function()
                                 processedPrompts[promptId] = nil
                             end)
                         end
@@ -379,4 +529,4 @@ game:BindToClose(function()
     end
 end)
 
-print("Gift Notifier with draggable UI loaded successfully!")
+print("🎁 Gift Notifier loaded! Waiting for gifting players to be detected...")
