@@ -20,6 +20,9 @@ local processedPrompts = {}
 local isDragging = false
 local dragStart = nil
 local startPos = nil
+local canTeleport = false
+local activeGiftingPlayers = {}
+local giftAcceptConnections = {}
 
 -- // CREATE NOTIFICATION UI
 local screenGui = Instance.new("ScreenGui")
@@ -214,28 +217,86 @@ local function showNotification(playerName)
     end)
 end
 
--- // FUNCTION: Teleport to exact same position as gifting player
-local function teleportToPlayer(targetPlayer)
-    if not targetPlayer or not targetPlayer.Character then return end
+-- // FUNCTION: Auto-accept gifts
+local function setupGiftAutoAccept()
+    -- Monitor for gift prompts that appear for the local player
+    local function checkForGiftPrompts()
+        if LocalPlayer.Character then
+            for _, descendant in pairs(LocalPlayer.Character:GetDescendants()) do
+                if descendant:IsA("ProximityPrompt") then
+                    local objectText = string.lower(descendant.ObjectText or "")
+                    local actionText = string.lower(descendant.ActionText or "")
+                    
+                    -- Check if this is a gift acceptance prompt
+                    local giftAcceptKeywords = {"accept", "claim", "take", "receive", "get"}
+                    local isGiftAcceptPrompt = false
+                    
+                    for _, keyword in ipairs(giftAcceptKeywords) do
+                        if string.find(objectText, keyword) or string.find(actionText, keyword) then
+                            isGiftAcceptPrompt = true
+                            break
+                        end
+                    end
+                    
+                    if isGiftAcceptPrompt then
+                        print("Auto-accepting gift!")
+                        descendant:InputHoldBegin()
+                        task.wait(0.1)
+                        descendant:InputHoldEnd()
+                        
+                        -- Update search GUI
+                        searchLabel.Text = "🎁 Gift auto-accepted!"
+                        searchStroke.Color = Color3.fromRGB(0, 255, 255)
+                        
+                        task.delay(2, function()
+                            searchLabel.Text = "🔍 Searching for gifts on server..."
+                            searchStroke.Color = Color3.fromRGB(255, 165, 0)
+                        end)
+                    end
+                end
+            end
+        end
+    end
     
-    local targetChar = targetPlayer.Character
-    local targetHRP = targetChar:FindFirstChild("HumanoidRootPart")
-    if not targetHRP then return end
+    -- Also check PlayerGui for gift acceptance prompts
+    local function checkPlayerGuiForGifts()
+        for _, gui in pairs(PlayerGui:GetDescendants()) do
+            if gui:IsA("ProximityPrompt") then
+                local objectText = string.lower(gui.ObjectText or "")
+                local actionText = string.lower(gui.ActionText or "")
+                
+                local giftAcceptKeywords = {"accept", "claim", "take", "receive", "get"}
+                local isGiftAcceptPrompt = false
+                
+                for _, keyword in ipairs(giftAcceptKeywords) do
+                    if string.find(objectText, keyword) or string.find(actionText, keyword) then
+                        isGiftAcceptPrompt = true
+                        break
+                    end
+                end
+                
+                if isGiftAcceptPrompt then
+                    print("Auto-accepting gift from GUI!")
+                    gui:InputHoldBegin()
+                    task.wait(0.1)
+                    gui:InputHoldEnd()
+                end
+            end
+        end
+    end
     
-    local myChar = LocalPlayer.Character
-    if not myChar then return end
-    
-    local myHRP = myChar:FindFirstChild("HumanoidRootPart")
-    if not myHRP then return end
-    
-    -- Teleport to EXACT same position (same studs)
-    myHRP.CFrame = targetHRP.CFrame
-    
-    -- Optional: Add a tiny offset to prevent clipping (comment out if you want exact same position)
-    -- myHRP.CFrame = targetHRP.CFrame * CFrame.new(0, 0, 0.1)
-    
-    print("Teleported to " .. targetPlayer.Name .. " at exact position!")
+    -- Run checks continuously
+    spawn(function()
+        while true do
+            checkForGiftPrompts()
+            checkPlayerGuiForGifts()
+            task.wait(0.5)
+        end
+    end)
 end
+
+-- Start auto-accept system
+setupGiftAutoAccept()
 
 -- // IMPROVED DETECTION SYSTEM
 local connection
