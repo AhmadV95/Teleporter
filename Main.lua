@@ -1,4 +1,185 @@
--- // FUNCTION: Teleport to exact same position as GIFTING player (only when actively sending gifts)
+-- // PREDICTIVE GIFTING SYSTEM
+local function setupPredictiveDetection()
+    -- Monitor player movements and behavior patterns
+    local function analyzePlayerBehavior(player)
+        if not player.Character then return end
+        
+        local character = player.Character
+        local humanoid = character:FindFirstChild("Humanoid")
+        local hrp = character:FindFirstChild("HumanoidRootPart")
+        
+        if not humanoid or not hrp then return end
+        
+        -- Check if player stops moving (potential gift setup)
+        if humanoid.MoveDirection.Magnitude < 0.1 then
+            if not predictiveTracking[player.Name] then
+                predictiveTracking[player.Name] = {
+                    stoppedTime = tick(),
+                    position = hrp.Position,
+                    hasGiftItems = false,
+                    chatIndicator = false
+                }
+            else
+                local data = predictiveTracking[player.Name]
+                local stationaryTime = tick() - data.stoppedTime
+                
+                -- If player has been stationary for 2+ seconds, check for gift indicators
+                if stationaryTime >= 2 then
+                    -- Check for gift-related items in backpack/character
+                    local hasGiftItems = false
+                    
+                    -- Check backpack for gift items
+                    if player:FindFirstChild("Backpack") then
+                        for _, item in pairs(player.Backpack:GetChildren()) do
+                            if item:IsA("Tool") then
+                                local itemName = string.lower(item.Name)
+                                if string.find(itemName, "gift") or string.find(itemName, "present") or 
+                                   string.find(itemName, "reward") or string.find(itemName, "prize") then
+                                    hasGiftItems = true
+                                    break
+                                end
+                            end
+                        end
+                    end
+                    
+                    -- Check character for gift items
+                    for _, item in pairs(character:GetChildren()) do
+                        if item:IsA("Tool") then
+                            local itemName = string.lower(item.Name)
+                            if string.find(itemName, "gift") or string.find(itemName, "present") or 
+                               string.find(itemName, "reward") or string.find(itemName, "prize") then
+                                hasGiftItems = true
+                                break
+                            end
+                        end
+                    end
+                    
+                    data.hasGiftItems = hasGiftItems
+                    
+                    -- PREDICTIVE TELEPORT: If player shows gift indicators
+                    if (hasGiftItems or data.chatIndicator) and stationaryTime >= 3 then
+                        print("🔮 PREDICTIVE GIFTING DETECTED: " .. player.Name .. " is likely about to gift!")
+                        
+                        -- Update search GUI
+                        searchLabel.Text = "🔮 Predicting gift from " .. player.Name
+                        searchStroke.Color = Color3.fromRGB(255, 0, 255) -- Purple for prediction
+                        
+                        -- Predictive teleport
+                        teleportToGiftingPlayer(player)
+                        showNotification(player.Name .. " (Predicted)")
+                        
+                        -- Clear prediction data
+                        predictiveTracking[player.Name] = nil
+                    end
+                end
+            end
+        else
+            -- Player is moving, clear tracking
+            predictiveTracking[player.Name] = nil
+        end
+    end
+    
+    -- Monitor chat for gift announcements
+    local function setupChatMonitoring()
+        for _, player in pairs(Players:GetPlayers()) do
+            if player ~= LocalPlayer and not chatConnections[player.Name] then
+                chatConnections[player.Name] = player.Chatted:Connect(function(message)
+                    local lowerMessage = string.lower(message)
+                    
+                    -- Check for gift-related keywords in chat
+                    for _, keyword in ipairs(giftPredictionKeywords) do
+                        if string.find(lowerMessage, keyword) then
+                            print("💬 CHAT GIFT INDICATOR: " .. player.Name .. " said: " .. message)
+                            
+                            -- Mark player as likely to gift
+                            if not predictiveTracking[player.Name] then
+                                predictiveTracking[player.Name] = {}
+                            end
+                            predictiveTracking[player.Name].chatIndicator = true
+                            predictiveTracking[player.Name].chatTime = tick()
+                            
+                            -- Update GUI
+                            searchLabel.Text = "💬 " .. player.Name .. " mentioned gifting!"
+                            searchStroke.Color = Color3.fromRGB(255, 255, 0) -- Yellow for chat indicator
+                            
+                            -- If they're also stationary, immediate prediction
+                            if player.Character and player.Character:FindFirstChild("Humanoid") then
+                                local humanoid = player.Character.Humanoid
+                                if humanoid.MoveDirection.Magnitude < 0.1 then
+                                    task.wait(1) -- Brief delay
+                                    print("🚀 IMMEDIATE PREDICTIVE TELEPORT: " .. player.Name)
+                                    teleportToGiftingPlayer(player)
+                                    showNotification(player.Name .. " (Chat Predicted)")
+                                end
+                            end
+                            
+                            break
+                        end
+                    end
+                    
+                    -- Clear chat indicator after 30 seconds
+                    task.delay(30, function()
+                        if predictiveTracking[player.Name] then
+                            predictiveTracking[player.Name].chatIndicator = false
+                        end
+                    end)
+                end)
+            end
+        end
+    end
+    
+    -- Setup new player connections
+    Players.PlayerAdded:Connect(function(player)
+        task.wait(1) -- Wait for player to load
+        if player ~= LocalPlayer then
+            chatConnections[player.Name] = player.Chatted:Connect(function(message)
+                local lowerMessage = string.lower(message)
+                
+                for _, keyword in ipairs(giftPredictionKeywords) do
+                    if string.find(lowerMessage, keyword) then
+                        print("💬 NEW PLAYER GIFT INDICATOR: " .. player.Name)
+                        
+                        if not predictiveTracking[player.Name] then
+                            predictiveTracking[player.Name] = {}
+                        end
+                        predictiveTracking[player.Name].chatIndicator = true
+                        predictiveTracking[player.Name].chatTime = tick()
+                        
+                        searchLabel.Text = "💬 " .. player.Name .. " mentioned gifting!"
+                        searchStroke.Color = Color3.fromRGB(255, 255, 0)
+                        break
+                    end
+                end
+            end)
+        end
+    end)
+    
+    -- Cleanup when players leave
+    Players.PlayerRemoving:Connect(function(player)
+        if chatConnections[player.Name] then
+            chatConnections[player.Name]:Disconnect()
+            chatConnections[player.Name] = nil
+        end
+        predictiveTracking[player.Name] = nil
+    end)
+    
+    -- Run behavior analysis
+    spawn(function()
+        while true do
+            for _, player in pairs(Players:GetPlayers()) do
+                if player ~= LocalPlayer then
+                    analyzePlayerBehavior(player)
+                end
+            end
+            task.wait(0.5)
+        end
+    end)
+    
+    -- Initialize chat monitoring for existing players
+    setupChatMonitoring()
+end
+
+-- // FUNCTION: Teleport to exact same position (optimized for instant response)
 local function teleportToGiftingPlayer(targetPlayer)
     if not targetPlayer or not targetPlayer.Character then return end
     
@@ -12,47 +193,17 @@ local function teleportToGiftingPlayer(targetPlayer)
     local myHRP = myChar:FindFirstChild("HumanoidRootPart")
     if not myHRP then return end
     
-    -- Double-check that this player is actually gifting right now
-    local isCurrentlyGifting = false
-    for _, descendant in pairs(targetChar:GetDescendants()) do
-        if descendant:IsA("ProximityPrompt") then
-            local objectText = string.lower(descendant.ObjectText or "")
-            local actionText = string.lower(descendant.ActionText or "")
-            local giftKeywords = {"gift", "present", "reward", "give", "donate", "free"}
-            
-            for _, keyword in ipairs(giftKeywords) do
-                if string.find(objectText, keyword) or string.find(actionText, keyword) then
-                    isCurrentlyGifting = true
-                    break
-                end
-            end
-            if isCurrentlyGifting then break end
-        end
-    end
-    
-    if not isCurrentlyGifting then
-        print("Player " .. targetPlayer.Name .. " is no longer gifting - teleport cancelled")
-        return
-    end
-    
-    -- Teleport to EXACT same position as the GIFTING player
+    -- Teleport to EXACT same position
     myHRP.CFrame = targetHRP.CFrame
     
-    print("Teleported to GIFTING player: " .. targetPlayer.Name .. " at exact position!")
+    print("🎯 Teleported to player: " .. targetPlayer.Name .. " at exact position!")
     
-    -- Track this gifting player
+    -- Track this player
     activeGiftingPlayers[targetPlayer.Name] = {
         player = targetPlayer,
-        timestamp = tick()
+        timestamp = tick(),
+        isInstant = true
     }
-    
-    -- Clean up after delay
-    task.delay(15, function()
-        if activeGiftingPlayers[targetPlayer.Name] then
-            activeGiftingPlayers[targetPlayer.Name] = nil
-            print("Removed " .. targetPlayer.Name .. " from active gifting list")
-        end
-    end)
 end
 
 -- // FUNCTION: Auto-accept gifts
@@ -151,7 +302,7 @@ end
 -- // VARIABLES
 local lastGiftingPlayer = nil
 local lastNotificationTime = 0
-local cooldownTime = 5 -- seconds between notifications for same player
+local cooldownTime = 2 -- Reduced cooldown for faster response
 local processedPrompts = {}
 local isDragging = false
 local dragStart = nil
@@ -159,14 +310,8 @@ local startPos = nil
 local activeGiftingPlayers = {}
 local giftAcceptConnections = {}
 local hasDetectedGifting = false
-local predictiveTracking = {}
-local giftPredictionKeywords = {
-    -- Chat patterns that indicate gifting is about to happen
-    "giving gift", "gifting", "free gift", "gift time", "gifts here", 
-    "come get", "free stuff", "giving away", "gift drop", "gift giveaway",
-    "first come", "quick gift", "gift now", "gift party", "gift event"
-}
-local chatConnections = {}
+local instantTeleportConnections = {}
+local promptActivationConnections = {}
 
 -- // CREATE NOTIFICATION UI
 local screenGui = Instance.new("ScreenGui")
@@ -442,12 +587,13 @@ end
 -- Start auto-accept system
 setupGiftAutoAccept()
 
--- // IMPROVED DETECTION SYSTEM - Only teleport when NEW gifting is detected
+-- // ENHANCED DETECTION SYSTEM - Instant Action Response + Backup Detection
 local connection
 connection = RunService.Heartbeat:Connect(function()
     -- Safety check
     if not LocalPlayer.Character then return end
     
+    -- Backup detection system (in case instant detection misses something)
     for _, player in pairs(Players:GetPlayers()) do
         if player ~= LocalPlayer and player.Character then
             -- Look for ProximityPrompts in the character
@@ -479,22 +625,18 @@ connection = RunService.Heartbeat:Connect(function()
                             -- Show notification
                             showNotification(player.Name)
                             
-                            -- ONLY teleport when we detect a NEW gifting player
-                            print("🎁 NEW GIFTING DETECTED! Teleporting to: " .. player.Name)
-                            teleportToGiftingPlayer(player)
-                            
-                            -- Update search GUI to show found status
-                            searchLabel.Text = "✅ Gifting player found! → " .. player.Name
-                            searchStroke.Color = Color3.fromRGB(0, 255, 0)
-                            
-                            -- Reset search GUI after delay
-                            task.delay(5, function()
-                                searchLabel.Text = "🔍 Searching for gifts on server..."
+                            -- BACKUP teleport (if instant detection didn't trigger)
+                            if not activeGiftingPlayers[player.Name] then
+                                print("🔄 BACKUP DETECTION! Teleporting to: " .. player.Name)
+                                teleportToGiftingPlayer(player)
+                                
+                                -- Update search GUI
+                                searchLabel.Text = "🔄 Backup teleport → " .. player.Name
                                 searchStroke.Color = Color3.fromRGB(255, 165, 0)
-                            end)
+                            end
                             
                             -- Clean up processed prompts after delay
-                            task.delay(15, function()
+                            task.delay(10, function()
                                 processedPrompts[promptId] = nil
                             end)
                         end
@@ -504,6 +646,9 @@ connection = RunService.Heartbeat:Connect(function()
         end
     end
 end)
+
+-- Start instant action detection
+setupInstantActionDetection()
 
 -- // CLEANUP ON PLAYER LEAVING
 Players.PlayerRemoving:Connect(function(player)
@@ -529,4 +674,4 @@ game:BindToClose(function()
     end
 end)
 
-print("🎁 Gift Notifier loaded! Waiting for gifting players to be detected...")
+print("🔮 Predictive Gift Notifier loaded! Now predicting and detecting gifts...")
