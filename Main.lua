@@ -1,16 +1,19 @@
 -- // SERVICES
 local Players = game:GetService("Players")
-local ProximityPromptService = game:GetService("ProximityPromptService")
+local LocalPlayer = Players.LocalPlayer
+local RunService = game:GetService("RunService")
 
--- // LOCAL PLAYER
-local localPlayer = Players.LocalPlayer
-local playerGui = localPlayer:WaitForChild("PlayerGui")
+-- Wait for PlayerGui to exist (important for Delta)
+repeat task.wait() until LocalPlayer:FindFirstChild("PlayerGui")
+local PlayerGui = LocalPlayer:FindFirstChild("PlayerGui")
 
--- // CREATE NOTIFICATION GUI
+-- // CREATE NOTIFICATION UI
 local screenGui = Instance.new("ScreenGui")
-screenGui.Name = "GiftNotification"
+screenGui.Name = "GiftNotifier"
 screenGui.ResetOnSpawn = false
-screenGui.Parent = playerGui
+screenGui.IgnoreGuiInset = true
+screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+screenGui.Parent = PlayerGui
 
 local frame = Instance.new("Frame")
 frame.Size = UDim2.new(0, 250, 0, 100)
@@ -52,7 +55,6 @@ local function showNotification(playerName)
 	textLabel.Text = playerName .. " is gifting!"
 	frame.Visible = true
 
-	-- Hide after 3 seconds
 	task.delay(3, function()
 		frame.Visible = false
 	end)
@@ -61,22 +63,23 @@ end
 -- // FUNCTION: Teleport beside player
 local function teleportBeside(targetPlayer)
 	if not targetPlayer.Character or not targetPlayer.Character:FindFirstChild("HumanoidRootPart") then return end
-	local myChar = localPlayer.Character or localPlayer.CharacterAdded:Wait()
+	local myChar = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
 	local hrp = myChar:FindFirstChild("HumanoidRootPart")
 	if hrp then
-		local offset = Vector3.new(3, 0, 0) -- 3 studs to the side
+		local offset = Vector3.new(3, 0, 0) -- 3 studs beside
 		hrp.CFrame = CFrame.new(targetPlayer.Character.HumanoidRootPart.Position + offset)
 	end
 end
 
--- // DETECT GIFTING
-ProximityPromptService.PromptTriggered:Connect(function(prompt, playerWhoTriggered)
-	-- Ignore if local player triggered it themselves
-	if playerWhoTriggered == localPlayer then return end
-
-	-- Check if prompt is related to gifting
-	if prompt.ObjectText and string.lower(prompt.ObjectText):find("gift") then
-		showNotification(playerWhoTriggered.Name)
-		teleportBeside(playerWhoTriggered)
+-- // DETECT GIFTING LOOP
+RunService.Heartbeat:Connect(function()
+	for _, plr in pairs(Players:GetPlayers()) do
+		if plr ~= LocalPlayer and plr.Character then
+			local prompt = plr.Character:FindFirstChildWhichIsA("ProximityPrompt", true)
+			if prompt and prompt.ObjectText and string.lower(prompt.ObjectText):find("gift") then
+				showNotification(plr.Name)
+				teleportBeside(plr)
+			end
+		end
 	end
 end)
