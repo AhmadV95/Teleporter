@@ -3,6 +3,7 @@ local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
 
 -- Wait for PlayerGui to exist with timeout
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui", 10)
@@ -16,6 +17,9 @@ local lastGiftingPlayer = nil
 local lastNotificationTime = 0
 local cooldownTime = 5 -- seconds between notifications for same player
 local processedPrompts = {}
+local isDragging = false
+local dragStart = nil
+local startPos = nil
 
 -- // CREATE NOTIFICATION UI
 local screenGui = Instance.new("ScreenGui")
@@ -34,13 +38,62 @@ if not success then
     return
 end
 
--- Main frame with rounded corners
+-- // SEARCHING GUI
+local searchFrame = Instance.new("Frame")
+searchFrame.Size = UDim2.new(0, 200, 0, 60)
+searchFrame.Position = UDim2.new(0, 20, 0, 20)
+searchFrame.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+searchFrame.BorderSizePixel = 0
+searchFrame.Active = true
+searchFrame.Draggable = true
+searchFrame.Parent = screenGui
+
+-- Add rounded corners to search frame
+local searchCorner = Instance.new("UICorner")
+searchCorner.CornerRadius = UDim.new(0, 8)
+searchCorner.Parent = searchFrame
+
+-- Add stroke to search frame
+local searchStroke = Instance.new("UIStroke")
+searchStroke.Color = Color3.fromRGB(255, 165, 0)
+searchStroke.Thickness = 2
+searchStroke.Parent = searchFrame
+
+-- Search status label
+local searchLabel = Instance.new("TextLabel")
+searchLabel.Size = UDim2.new(1, -10, 1, 0)
+searchLabel.Position = UDim2.new(0, 5, 0, 0)
+searchLabel.BackgroundTransparency = 1
+searchLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+searchLabel.Font = Enum.Font.GothamBold
+searchLabel.TextSize = 12
+searchLabel.TextWrapped = true
+searchLabel.Text = "🔍 Searching for gifts on server..."
+searchLabel.Parent = searchFrame
+
+-- Animated dots for searching effect
+local dots = ""
+spawn(function()
+    while true do
+        for i = 1, 3 do
+            dots = dots .. "."
+            searchLabel.Text = "🔍 Searching for gifts on server" .. dots
+            wait(0.5)
+        end
+        dots = ""
+        searchLabel.Text = "🔍 Searching for gifts on server"
+        wait(0.5)
+    end
+end)
+
+-- // MAIN NOTIFICATION FRAME
 local frame = Instance.new("Frame")
 frame.Size = UDim2.new(0, 280, 0, 80)
 frame.Position = UDim2.new(0.5, -140, 0.85, 0)
 frame.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
 frame.BorderSizePixel = 0
 frame.Visible = false
+frame.Active = true
 frame.Parent = screenGui
 
 -- Add rounded corners
@@ -76,18 +129,47 @@ textLabel.Font = Enum.Font.GothamBold
 textLabel.TextSize = 14
 textLabel.TextWrapped = true
 textLabel.TextXAlignment = Enum.TextXAlignment.Left
-textLabel.Text = "Searching for gifts..."
+textLabel.Text = "Gift detected!"
 textLabel.Parent = frame
+
+-- // DRAG FUNCTIONALITY FOR NOTIFICATION FRAME
+local function updateInput(input)
+    local delta = input.Position - dragStart
+    local newPosition = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+    frame.Position = newPosition
+end
+
+frame.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        isDragging = true
+        dragStart = input.Position
+        startPos = frame.Position
+        
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then
+                isDragging = false
+            end
+        end)
+    end
+end)
+
+frame.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+        if isDragging then
+            updateInput(input)
+        end
+    end
+end)
 
 -- // ANIMATION TWEENS
 local showTween = TweenService:Create(frame, 
     TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
-    {Position = UDim2.new(0.5, -140, 0.8, 0)}
+    {Size = UDim2.new(0, 280, 0, 80)}
 )
 
 local hideTween = TweenService:Create(frame,
     TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.In),
-    {Position = UDim2.new(0.5, -140, 0.85, 0)}
+    {Size = UDim2.new(0, 280, 0, 0)}
 )
 
 -- // FUNCTION: Show Notification with improved error handling
@@ -132,8 +214,8 @@ local function showNotification(playerName)
     end)
 end
 
--- // FUNCTION: Safe teleport with collision detection
-local function teleportBeside(targetPlayer)
+-- // FUNCTION: Teleport to exact same position as gifting player
+local function teleportToPlayer(targetPlayer)
     if not targetPlayer or not targetPlayer.Character then return end
     
     local targetChar = targetPlayer.Character
@@ -146,27 +228,13 @@ local function teleportBeside(targetPlayer)
     local myHRP = myChar:FindFirstChild("HumanoidRootPart")
     if not myHRP then return end
     
-    -- Multiple offset positions to try
-    local offsets = {
-        Vector3.new(5, 0, 0),
-        Vector3.new(-5, 0, 0),
-        Vector3.new(0, 0, 5),
-        Vector3.new(0, 0, -5),
-        Vector3.new(3, 0, 3),
-        Vector3.new(-3, 0, -3)
-    }
+    -- Teleport to EXACT same position (same studs)
+    myHRP.CFrame = targetHRP.CFrame
     
-    for _, offset in ipairs(offsets) do
-        local newPosition = targetHRP.Position + offset
-        local newCFrame = CFrame.new(newPosition, targetHRP.Position)
-        
-        -- Check if position is safe (basic check)
-        local raycast = workspace:Raycast(newPosition + Vector3.new(0, 10, 0), Vector3.new(0, -15, 0))
-        if raycast then
-            myHRP.CFrame = newCFrame
-            break
-        end
-    end
+    -- Optional: Add a tiny offset to prevent clipping (comment out if you want exact same position)
+    -- myHRP.CFrame = targetHRP.CFrame * CFrame.new(0, 0, 0.1)
+    
+    print("Teleported to " .. targetPlayer.Name .. " at exact position!")
 end
 
 -- // IMPROVED DETECTION SYSTEM
@@ -188,7 +256,7 @@ connection = RunService.Heartbeat:Connect(function()
                         local objectText = descendant.ObjectText or ""
                         local actionText = descendant.ActionText or ""
                         
-                        local giftKeywords = {"gift", "present", "reward", "give", "donate"}
+                        local giftKeywords = {"gift", "present", "reward", "give", "donate", "free"}
                         local isGiftPrompt = false
                         
                         for _, keyword in ipairs(giftKeywords) do
@@ -202,7 +270,17 @@ connection = RunService.Heartbeat:Connect(function()
                         if isGiftPrompt then
                             processedPrompts[promptId] = true
                             showNotification(player.Name)
-                            teleportBeside(player)
+                            teleportToPlayer(player)
+                            
+                            -- Update search GUI to show found status
+                            searchLabel.Text = "✅ Gift found! Teleported to " .. player.Name
+                            searchStroke.Color = Color3.fromRGB(0, 255, 0)
+                            
+                            -- Reset search GUI after delay
+                            task.delay(3, function()
+                                searchLabel.Text = "🔍 Searching for gifts on server..."
+                                searchStroke.Color = Color3.fromRGB(255, 165, 0)
+                            end)
                             
                             -- Clean up processed prompts after delay
                             task.delay(10, function()
@@ -240,4 +318,4 @@ game:BindToClose(function()
     end
 end)
 
-print("Gift Notifier loaded successfully!")
+print("Gift Notifier with draggable UI loaded successfully!")
