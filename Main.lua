@@ -1,728 +1,271 @@
--- // GROW A GARDEN - GIFT DETECTOR (FIXED VERSION)
--- Optimized for Grow a Garden's specific gifting system
-
--- // SERVICES
+local player = game.Players.LocalPlayer
 local Players = game:GetService("Players")
-local LocalPlayer = Players.LocalPlayer
-local RunService = game:GetService("RunService")
-local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
 
--- Wait for PlayerGui to exist with timeout
-local PlayerGui = LocalPlayer:WaitForChild("PlayerGui", 10)
-if not PlayerGui then
-    warn("PlayerGui not found after timeout")
-    return
-end
+local targetPlayer = nil
+local followConnection = nil
 
--- // VARIABLES
-local lastGiftingPlayer = nil
-local lastNotificationTime = 0
-local cooldownTime = 1
-local processedPrompts = {}
-local isDragging = false
-local dragStart = nil
-local startPos = nil
-local activeGiftingPlayers = {}
-local instantTeleportConnections = {}
-local promptActivationConnections = {}
-local predictiveTracking = {}
-local chatConnections = {}
-
--- Grow a Garden specific keywords
-local gardenGiftKeywords = {
-    "gift", "give", "present", "reward", "free", "donate", "share",
-    "plant", "seed", "flower", "vegetable", "fruit", "crop", "harvest",
-    "water", "fertilizer", "shovel", "hoe", "tools"
-}
-
-local giftPredictionKeywords = {
-    "giving", "gift", "present", "free", "sharing", "donate",
-    "here", "take", "anyone want", "who wants", "come get"
-}
-
--- // CREATE NOTIFICATION UI
+-- Main ScreenGui
 local screenGui = Instance.new("ScreenGui")
-screenGui.Name = "GiftNotifier"
+screenGui.Name = "TeleportGui"
 screenGui.ResetOnSpawn = false
-screenGui.IgnoreGuiInset = true
-screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+screenGui.Parent = game:GetService("CoreGui")
 
--- Protected call to parent the GUI
-local success = pcall(function()
-    screenGui.Parent = PlayerGui
-end)
+-- Movable Minimize Icon
+local minimizeIcon = Instance.new("TextButton")
+minimizeIcon.Size = UDim2.new(0, 50, 0, 50)
+minimizeIcon.Position = UDim2.new(0, 20, 0, 200)
+minimizeIcon.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+minimizeIcon.TextColor3 = Color3.fromRGB(255, 255, 255)
+minimizeIcon.Font = Enum.Font.GothamBold
+minimizeIcon.TextScaled = true
+minimizeIcon.Text = "T"
+minimizeIcon.Visible = false
+minimizeIcon.Active = true
+minimizeIcon.Draggable = true
+minimizeIcon.Parent = screenGui
+local iconCorner = Instance.new("UICorner")
+iconCorner.CornerRadius = UDim.new(0, 8)
+iconCorner.Parent = minimizeIcon
 
-if not success then
-    warn("Failed to create ScreenGui")
-    return
-end
-
--- // SEARCHING GUI
-local searchFrame = Instance.new("Frame")
-searchFrame.Size = UDim2.new(0, 200, 0, 60)
-searchFrame.Position = UDim2.new(0, 20, 0, 20)
-searchFrame.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
-searchFrame.BorderSizePixel = 0
-searchFrame.Active = true
-searchFrame.Draggable = true
-searchFrame.Parent = screenGui
-
--- Add rounded corners to search frame
-local searchCorner = Instance.new("UICorner")
-searchCorner.CornerRadius = UDim.new(0, 8)
-searchCorner.Parent = searchFrame
-
--- Add stroke to search frame
-local searchStroke = Instance.new("UIStroke")
-searchStroke.Color = Color3.fromRGB(255, 165, 0)
-searchStroke.Thickness = 2
-searchStroke.Parent = searchFrame
-
--- Search status label
-local searchLabel = Instance.new("TextLabel")
-searchLabel.Size = UDim2.new(1, -10, 1, 0)
-searchLabel.Position = UDim2.new(0, 5, 0, 0)
-searchLabel.BackgroundTransparency = 1
-searchLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-searchLabel.Font = Enum.Font.GothamBold
-searchLabel.TextSize = 12
-searchLabel.TextWrapped = true
-searchLabel.Text = "🌱 Searching for garden gifts..."
-searchLabel.Parent = searchFrame
-
--- Animated dots for garden searching effect
-spawn(function()
-    local dots = ""
-    while searchFrame.Parent do
-        for i = 1, 3 do
-            dots = dots .. "."
-            if searchLabel and searchLabel.Parent then
-                searchLabel.Text = "🌱 Searching for garden gifts" .. dots
-            end
-            wait(0.5)
-        end
-        dots = ""
-        if searchLabel and searchLabel.Parent then
-            searchLabel.Text = "🌱 Searching for garden gifts"
-        end
-        wait(0.5)
-    end
-end)
-
--- // MAIN NOTIFICATION FRAME
+-- Movable Main Frame
 local frame = Instance.new("Frame")
-frame.Size = UDim2.new(0, 280, 0, 80)
-frame.Position = UDim2.new(0.5, -140, 0.85, 0)
+frame.Size = UDim2.new(0, 300, 0, 400)
+frame.Position = UDim2.new(0.5, -150, 0.5, -200)
 frame.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
 frame.BorderSizePixel = 0
-frame.Visible = false
 frame.Active = true
+frame.Draggable = true
 frame.Parent = screenGui
-
--- Add rounded corners
 local corner = Instance.new("UICorner")
-corner.CornerRadius = UDim.new(0, 8)
+corner.CornerRadius = UDim.new(0, 10)
 corner.Parent = frame
 
--- Add stroke
-local stroke = Instance.new("UIStroke")
-stroke.Color = Color3.fromRGB(0, 255, 0)
-stroke.Thickness = 2
-stroke.Parent = frame
+-- ===== Title Bar =====
+local titleBar = Instance.new("Frame")
+titleBar.Size = UDim2.new(1, 0, 0, 35)
+titleBar.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+titleBar.BorderSizePixel = 0
+titleBar.Parent = frame
 
--- Avatar image with rounded corners
+local titleText = Instance.new("TextLabel")
+titleText.Text = "Teleport Menu"
+titleText.Size = UDim2.new(1, -60, 1, 0)
+titleText.Position = UDim2.new(0, 10, 0, 0)
+titleText.BackgroundTransparency = 1
+titleText.TextColor3 = Color3.fromRGB(255, 255, 255)
+titleText.Font = Enum.Font.GothamBold
+titleText.TextSize = 16
+titleText.TextXAlignment = Enum.TextXAlignment.Left
+titleText.Parent = titleBar
+
+-- Minimize Button
+local minimizeBtn = Instance.new("TextButton")
+minimizeBtn.Size = UDim2.new(0, 25, 0, 25)
+minimizeBtn.Position = UDim2.new(1, -50, 0, 5)
+minimizeBtn.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
+minimizeBtn.Text = "_"
+minimizeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+minimizeBtn.Font = Enum.Font.GothamBold
+minimizeBtn.TextScaled = true
+minimizeBtn.Parent = titleBar
+
+-- Close Button
+local closeBtn = Instance.new("TextButton")
+closeBtn.Size = UDim2.new(0, 25, 0, 25)
+closeBtn.Position = UDim2.new(1, -25, 0, 5)
+closeBtn.BackgroundColor3 = Color3.fromRGB(200, 0, 0)
+closeBtn.Text = "X"
+closeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+closeBtn.Font = Enum.Font.GothamBold
+closeBtn.TextScaled = true
+closeBtn.Parent = titleBar
+
+-- Button Functions
+minimizeBtn.MouseButton1Click:Connect(function()
+	frame.Visible = false
+	minimizeIcon.Visible = true
+end)
+closeBtn.MouseButton1Click:Connect(function()
+	frame.Visible = false
+	minimizeIcon.Visible = true
+end)
+minimizeIcon.MouseButton1Click:Connect(function()
+	frame.Visible = true
+	minimizeIcon.Visible = false
+end)
+
+-- Resize Handle
+local resizeHandle = Instance.new("Frame")
+resizeHandle.Size = UDim2.new(0, 20, 0, 20)
+resizeHandle.Position = UDim2.new(1, -20, 1, -20)
+resizeHandle.BackgroundColor3 = Color3.fromRGB(100, 100, 100)
+resizeHandle.BorderSizePixel = 0
+resizeHandle.Active = true
+resizeHandle.Parent = frame
+local resizeCorner = Instance.new("UICorner")
+resizeCorner.CornerRadius = UDim.new(0, 5)
+resizeCorner.Parent = resizeHandle
+
+resizeHandle.InputBegan:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1 then
+		local startPos = UserInputService:GetMouseLocation()
+		local startSize = frame.Size
+		local moveConn, releaseConn
+		moveConn = UserInputService.InputChanged:Connect(function(moveInput)
+			if moveInput.UserInputType == Enum.UserInputType.MouseMovement then
+				local delta = UserInputService:GetMouseLocation() - startPos
+				frame.Size = UDim2.new(
+					startSize.X.Scale, math.max(250, startSize.X.Offset + delta.X),
+					startSize.Y.Scale, math.max(250, startSize.Y.Offset + delta.Y)
+				)
+			end
+		end)
+		releaseConn = UserInputService.InputEnded:Connect(function(endInput)
+			if endInput.UserInputType == Enum.UserInputType.MouseButton1 then
+				moveConn:Disconnect()
+				releaseConn:Disconnect()
+			end
+		end)
+	end
+end)
+
+-- Dropdown Button
+local dropdownButton = Instance.new("TextButton")
+dropdownButton.Size = UDim2.new(1, -20, 0, 40)
+dropdownButton.Position = UDim2.new(0, 10, 0, 50)
+dropdownButton.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+dropdownButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+dropdownButton.Font = Enum.Font.Gotham
+dropdownButton.TextSize = 18
+dropdownButton.Text = "Select Player ▼"
+dropdownButton.Parent = frame
+local dropdownCorner = Instance.new("UICorner")
+dropdownCorner.CornerRadius = UDim.new(0, 5)
+dropdownCorner.Parent = dropdownButton
+
+-- Dropdown Frame
+local dropdownFrame = Instance.new("Frame")
+dropdownFrame.Size = UDim2.new(1, -20, 0, 0)
+dropdownFrame.Position = UDim2.new(0, 10, 0, 90)
+dropdownFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+dropdownFrame.BorderSizePixel = 0
+dropdownFrame.Visible = false
+dropdownFrame.Parent = frame
+local dropdownFrameCorner = Instance.new("UICorner")
+dropdownFrameCorner.CornerRadius = UDim.new(0, 5)
+dropdownFrameCorner.Parent = dropdownFrame
+
+-- Avatar Image
 local avatarImage = Instance.new("ImageLabel")
-avatarImage.Size = UDim2.new(0, 60, 0, 60)
-avatarImage.Position = UDim2.new(0, 10, 0.5, -30)
-avatarImage.BackgroundTransparency = 1
-avatarImage.Image = "rbxasset://textures/ui/GuiImagePlaceholder.png"
+avatarImage.Size = UDim2.new(0, 100, 0, 100)
+avatarImage.Position = UDim2.new(0.5, -50, 0, 150)
+avatarImage.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
 avatarImage.Parent = frame
-
 local avatarCorner = Instance.new("UICorner")
-avatarCorner.CornerRadius = UDim.new(0, 30)
+avatarCorner.CornerRadius = UDim.new(0, 8)
 avatarCorner.Parent = avatarImage
 
--- Text label
-local textLabel = Instance.new("TextLabel")
-textLabel.Size = UDim2.new(1, -80, 1, 0)
-textLabel.Position = UDim2.new(0, 80, 0, 0)
-textLabel.BackgroundTransparency = 1
-textLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-textLabel.Font = Enum.Font.GothamBold
-textLabel.TextSize = 14
-textLabel.TextWrapped = true
-textLabel.TextXAlignment = Enum.TextXAlignment.Left
-textLabel.Text = "Gift detected!"
-textLabel.Parent = frame
+-- Teleport Button
+local teleportButton = Instance.new("TextButton")
+teleportButton.Size = UDim2.new(1, -20, 0, 40)
+teleportButton.Position = UDim2.new(0, 10, 0, 270)
+teleportButton.BackgroundColor3 = Color3.fromRGB(0, 170, 0)
+teleportButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+teleportButton.Font = Enum.Font.GothamBold
+teleportButton.TextScaled = true
+teleportButton.Text = "Teleport"
+teleportButton.Parent = frame
+local teleportCorner = Instance.new("UICorner")
+teleportCorner.CornerRadius = UDim.new(0, 5)
+teleportCorner.Parent = teleportButton
 
--- // DRAG FUNCTIONALITY FOR NOTIFICATION FRAME
-local function updateInput(input)
-    local delta = input.Position - dragStart
-    local newPosition = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
-    frame.Position = newPosition
+-- Turn Off Button
+local turnOffButton = Instance.new("TextButton")
+turnOffButton.Size = UDim2.new(1, -20, 0, 40)
+turnOffButton.Position = UDim2.new(0, 10, 0, 320)
+turnOffButton.BackgroundColor3 = Color3.fromRGB(200, 0, 0)
+turnOffButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+turnOffButton.Font = Enum.Font.GothamBold
+turnOffButton.TextScaled = true
+turnOffButton.Text = "Turn Off"
+turnOffButton.Parent = frame
+local turnOffCorner = Instance.new("UICorner")
+turnOffCorner.CornerRadius = UDim.new(0, 5)
+turnOffCorner.Parent = turnOffButton
+
+-- Update Player List
+local function updatePlayerList()
+	dropdownFrame:ClearAllChildren()
+	local y = 0
+	for _, plr in ipairs(Players:GetPlayers()) do
+		if plr ~= player then
+			local btn = Instance.new("TextButton")
+			btn.Size = UDim2.new(1, 0, 0, 30)
+			btn.Position = UDim2.new(0, 0, 0, y)
+			btn.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+			btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+			btn.Font = Enum.Font.Gotham
+			btn.TextSize = 16
+			btn.Text = plr.Name
+			btn.Parent = dropdownFrame
+			btn.MouseButton1Click:Connect(function()
+				targetPlayer = plr
+				dropdownButton.Text = plr.Name .. " ▼"
+				local content, isReady = Players:GetUserThumbnailAsync(plr.UserId, Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size100x100)
+				if isReady then avatarImage.Image = content end
+				dropdownFrame.Visible = false
+			end)
+			y += 30
+		end
+	end
+	dropdownFrame.Size = UDim2.new(1, -20, 0, y)
 end
 
-frame.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        isDragging = true
-        dragStart = input.Position
-        startPos = frame.Position
-        
-        input.Changed:Connect(function()
-            if input.UserInputState == Enum.UserInputState.End then
-                isDragging = false
-            end
-        end)
-    end
+-- Toggle Dropdown
+dropdownButton.MouseButton1Click:Connect(function()
+	dropdownFrame.Visible = not dropdownFrame.Visible
 end)
 
-frame.InputChanged:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
-        if isDragging then
-            updateInput(input)
-        end
-    end
+-- Refresh list every 5 sec
+task.spawn(function()
+	while true do
+		updatePlayerList()
+		task.wait(5)
+	end
 end)
 
--- // ANIMATION TWEENS
-local showTween = TweenService:Create(frame, 
-    TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
-    {Size = UDim2.new(0, 280, 0, 80)}
-)
+-- Teleport + Follow EXACTLY
+teleportButton.MouseButton1Click:Connect(function()
+	if targetPlayer and targetPlayer.Character and targetPlayer.Character:FindFirstChild("HumanoidRootPart") then
+		local myChar = player.Character or player.CharacterAdded:Wait()
+		local hrp = myChar:FindFirstChild("HumanoidRootPart")
+		if hrp then
+			-- Teleport exactly on player
+			hrp.CFrame = targetPlayer.Character.HumanoidRootPart.CFrame
+		end
 
-local hideTween = TweenService:Create(frame,
-    TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.In),
-    {Size = UDim2.new(0, 280, 0, 0)}
-)
+		if followConnection then followConnection:Disconnect() end
 
--- // FUNCTION: Show Notification with improved error handling
-local function showNotification(playerName)
-    local currentTime = tick()
-    
-    -- Cooldown check
-    if lastGiftingPlayer == playerName and (currentTime - lastNotificationTime) < cooldownTime then
-        return
-    end
-    
-    lastGiftingPlayer = playerName
-    lastNotificationTime = currentTime
-    
-    -- Get avatar with error handling
-    spawn(function()
-        local success, result = pcall(function()
-            local userId = Players:GetUserIdFromNameAsync(playerName)
-            local thumbType = Enum.ThumbnailType.HeadShot
-            local thumbSize = Enum.ThumbnailSize.Size100x100
-            return Players:GetUserThumbnailAsync(userId, thumbType, thumbSize)
-        end)
-        
-        if success and result then
-            avatarImage.Image = result
-        else
-            avatarImage.Image = "rbxasset://textures/ui/GuiImagePlaceholder.png"
-        end
-    end)
-    
-    textLabel.Text = playerName .. " is gifting! 🎁"
-    
-    -- Show with animation
-    frame.Visible = true
-    showTween:Play()
-    
-    -- Hide after delay
-    task.delay(4, function()
-        hideTween:Play()
-        hideTween.Completed:Wait()
-        frame.Visible = false
-    end)
-end
-
--- // FUNCTION: Teleport to exact same position (optimized for instant response)
-local function teleportToGiftingPlayer(targetPlayer)
-    if not targetPlayer or not targetPlayer.Character then return end
-    
-    local targetChar = targetPlayer.Character
-    local targetHRP = targetChar:FindFirstChild("HumanoidRootPart")
-    if not targetHRP then return end
-    
-    local myChar = LocalPlayer.Character
-    if not myChar then return end
-    
-    local myHRP = myChar:FindFirstChild("HumanoidRootPart")
-    if not myHRP then return end
-    
-    -- Teleport to EXACT same position
-    myHRP.CFrame = targetHRP.CFrame
-    
-    print("🎯 Teleported to player: " .. targetPlayer.Name .. " at exact position!")
-    
-    -- Track this player
-    activeGiftingPlayers[targetPlayer.Name] = {
-        player = targetPlayer,
-        timestamp = tick(),
-        isInstant = true
-    }
-end
-
--- // FUNCTION: Auto-accept gifts
-local function setupGiftAutoAccept()
-    -- Monitor for gift prompts that appear for the local player
-    local function checkForGiftPrompts()
-        if LocalPlayer.Character then
-            for _, descendant in pairs(LocalPlayer.Character:GetDescendants()) do
-                if descendant:IsA("ProximityPrompt") then
-                    local objectText = string.lower(descendant.ObjectText or "")
-                    local actionText = string.lower(descendant.ActionText or "")
-                    
-                    -- Check if this is a gift acceptance prompt
-                    local giftAcceptKeywords = {"accept", "claim", "take", "receive", "get"}
-                    local isGiftAcceptPrompt = false
-                    
-                    for _, keyword in ipairs(giftAcceptKeywords) do
-                        if string.find(objectText, keyword) or string.find(actionText, keyword) then
-                            isGiftAcceptPrompt = true
-                            break
-                        end
-                    end
-                    
-                    if isGiftAcceptPrompt then
-                        print("Auto-accepting gift!")
-                        descendant:InputHoldBegin()
-                        task.wait(0.1)
-                        descendant:InputHoldEnd()
-                        
-                        -- Update search GUI
-                        searchLabel.Text = "🎁 Gift auto-accepted!"
-                        searchStroke.Color = Color3.fromRGB(0, 255, 255)
-                        
-                        task.delay(2, function()
-                            searchLabel.Text = "🌱 Searching for garden gifts..."
-                            searchStroke.Color = Color3.fromRGB(255, 165, 0)
-                        end)
-                    end
-                end
-            end
-        end
-    end
-    
-    -- Also check PlayerGui for gift acceptance prompts
-    local function checkPlayerGuiForGifts()
-        for _, gui in pairs(PlayerGui:GetDescendants()) do
-            if gui:IsA("ProximityPrompt") then
-                local objectText = string.lower(gui.ObjectText or "")
-                local actionText = string.lower(gui.ActionText or "")
-                
-                local giftAcceptKeywords = {"accept", "claim", "take", "receive", "get"}
-                local isGiftAcceptPrompt = false
-                
-                for _, keyword in ipairs(giftAcceptKeywords) do
-                    if string.find(objectText, keyword) or string.find(actionText, keyword) then
-                        isGiftAcceptPrompt = true
-                        break
-                    end
-                end
-                
-                if isGiftAcceptPrompt then
-                    print("Auto-accepting gift from GUI!")
-                    gui:InputHoldBegin()
-                    task.wait(0.1)
-                    gui:InputHoldEnd()
-                end
-            end
-        end
-    end
-    
-    -- Run checks continuously
-    spawn(function()
-        while screenGui.Parent do
-            checkForGiftPrompts()
-            checkPlayerGuiForGifts()
-            task.wait(0.5)
-        end
-    end)
-end
-
--- // FUNCTION: Auto-accept garden gifts
-local function setupGardenGiftAutoAccept()
-    -- Monitor for garden gift acceptance prompts
-    local function checkForGardenGiftPrompts()
-        if LocalPlayer.Character then
-            for _, descendant in pairs(LocalPlayer.Character:GetDescendants()) do
-                if descendant:IsA("ProximityPrompt") then
-                    local objectText = string.lower(descendant.ObjectText or "")
-                    local actionText = string.lower(descendant.ActionText or "")
-                    
-                    -- Garden-specific acceptance keywords
-                    local gardenAcceptKeywords = {"accept", "claim", "take", "receive", "get", "harvest", "collect", "pick"}
-                    local isGardenGiftAccept = false
-                    
-                    for _, keyword in ipairs(gardenAcceptKeywords) do
-                        if string.find(objectText, keyword) or string.find(actionText, keyword) then
-                            -- Also check if it's garden-related
-                            for _, gardenKeyword in ipairs(gardenGiftKeywords) do
-                                if string.find(objectText, gardenKeyword) or string.find(actionText, gardenKeyword) then
-                                    isGardenGiftAccept = true
-                                    break
-                                end
-                            end
-                            if isGardenGiftAccept then break end
-                        end
-                    end
-                    
-                    if isGardenGiftAccept then
-                        print("🌱 Auto-accepting garden gift!")
-                        descendant:InputHoldBegin()
-                        task.wait(0.1)
-                        descendant:InputHoldEnd()
-                        
-                        -- Update search GUI
-                        searchLabel.Text = "🌱🎁 Garden gift accepted!"
-                        searchStroke.Color = Color3.fromRGB(0, 255, 255)
-                        
-                        task.delay(2, function()
-                            searchLabel.Text = "🌱 Searching for garden gifts..."
-                            searchStroke.Color = Color3.fromRGB(255, 165, 0)
-                        end)
-                    end
-                end
-            end
-        end
-    end
-    
-    -- Also check PlayerGui for garden gift prompts
-    local function checkPlayerGuiForGardenGifts()
-        for _, gui in pairs(PlayerGui:GetDescendants()) do
-            if gui:IsA("ProximityPrompt") then
-                local objectText = string.lower(gui.ObjectText or "")
-                local actionText = string.lower(gui.ActionText or "")
-                
-                local gardenAcceptKeywords = {"accept", "claim", "take", "receive", "get", "harvest", "collect"}
-                local isGardenGiftAccept = false
-                
-                for _, keyword in ipairs(gardenAcceptKeywords) do
-                    if string.find(objectText, keyword) or string.find(actionText, keyword) then
-                        for _, gardenKeyword in ipairs(gardenGiftKeywords) do
-                            if string.find(objectText, gardenKeyword) or string.find(actionText, gardenKeyword) then
-                                isGardenGiftAccept = true
-                                break
-                            end
-                        end
-                        if isGardenGiftAccept then break end
-                    end
-                end
-                
-                if isGardenGiftAccept then
-                    print("🌱 Auto-accepting garden gift from GUI!")
-                    gui:InputHoldBegin()
-                    task.wait(0.1)
-                    gui:InputHoldEnd()
-                end
-            end
-        end
-    end
-    
-    -- Run garden gift checks continuously
-    spawn(function()
-        while screenGui.Parent do
-            checkForGardenGiftPrompts()
-            checkPlayerGuiForGardenGifts()
-            task.wait(0.3) -- Faster for garden game
-        end
-    end)
-end
-
--- // PREDICTIVE GIFTING SYSTEM
-local function setupPredictiveDetection()
-    -- Monitor player movements and behavior patterns
-    local function analyzePlayerBehavior(player)
-        if not player.Character then return end
-        
-        local character = player.Character
-        local humanoid = character:FindFirstChild("Humanoid")
-        local hrp = character:FindFirstChild("HumanoidRootPart")
-        
-        if not humanoid or not hrp then return end
-        
-        -- Check if player stops moving (potential gift setup)
-        if humanoid.MoveDirection.Magnitude < 0.1 then
-            if not predictiveTracking[player.Name] then
-                predictiveTracking[player.Name] = {
-                    stoppedTime = tick(),
-                    position = hrp.Position,
-                    hasGiftItems = false,
-                    chatIndicator = false
-                }
-            else
-                local data = predictiveTracking[player.Name]
-                local stationaryTime = tick() - data.stoppedTime
-                
-                -- If player has been stationary for 2+ seconds, check for gift indicators
-                if stationaryTime >= 2 then
-                    -- Check for gift-related items in backpack/character
-                    local hasGiftItems = false
-                    
-                    -- Check backpack for gift items
-                    if player:FindFirstChild("Backpack") then
-                        for _, item in pairs(player.Backpack:GetChildren()) do
-                            if item:IsA("Tool") then
-                                local itemName = string.lower(item.Name)
-                                if string.find(itemName, "gift") or string.find(itemName, "present") or 
-                                   string.find(itemName, "reward") or string.find(itemName, "prize") then
-                                    hasGiftItems = true
-                                    break
-                                end
-                            end
-                        end
-                    end
-                    
-                    -- Check character for gift items
-                    for _, item in pairs(character:GetChildren()) do
-                        if item:IsA("Tool") then
-                            local itemName = string.lower(item.Name)
-                            if string.find(itemName, "gift") or string.find(itemName, "present") or 
-                               string.find(itemName, "reward") or string.find(itemName, "prize") then
-                                hasGiftItems = true
-                                break
-                            end
-                        end
-                    end
-                    
-                    data.hasGiftItems = hasGiftItems
-                    
-                    -- PREDICTIVE TELEPORT: If player shows gift indicators
-                    if (hasGiftItems or data.chatIndicator) and stationaryTime >= 3 then
-                        print("🔮 PREDICTIVE GIFTING DETECTED: " .. player.Name .. " is likely about to gift!")
-                        
-                        -- Update search GUI
-                        searchLabel.Text = "🔮 Predicting gift from " .. player.Name
-                        searchStroke.Color = Color3.fromRGB(255, 0, 255) -- Purple for prediction
-                        
-                        -- Predictive teleport
-                        teleportToGiftingPlayer(player)
-                        showNotification(player.Name .. " (Predicted)")
-                        
-                        -- Clear prediction data
-                        predictiveTracking[player.Name] = nil
-                    end
-                end
-            end
-        else
-            -- Player is moving, clear tracking
-            predictiveTracking[player.Name] = nil
-        end
-    end
-    
-    -- Monitor chat for gift announcements
-    local function setupChatMonitoring()
-        for _, player in pairs(Players:GetPlayers()) do
-            if player ~= LocalPlayer and not chatConnections[player.Name] then
-                chatConnections[player.Name] = player.Chatted:Connect(function(message)
-                    local lowerMessage = string.lower(message)
-                    
-                    -- Check for gift-related keywords in chat
-                    for _, keyword in ipairs(giftPredictionKeywords) do
-                        if string.find(lowerMessage, keyword) then
-                            print("💬 CHAT GIFT INDICATOR: " .. player.Name .. " said: " .. message)
-                            
-                            -- Mark player as likely to gift
-                            if not predictiveTracking[player.Name] then
-                                predictiveTracking[player.Name] = {}
-                            end
-                            predictiveTracking[player.Name].chatIndicator = true
-                            predictiveTracking[player.Name].chatTime = tick()
-                            
-                            -- Update GUI
-                            searchLabel.Text = "💬 " .. player.Name .. " mentioned gifting!"
-                            searchStroke.Color = Color3.fromRGB(255, 255, 0) -- Yellow for chat indicator
-                            
-                            -- If they're also stationary, immediate prediction
-                            if player.Character and player.Character:FindFirstChild("Humanoid") then
-                                local humanoid = player.Character.Humanoid
-                                if humanoid.MoveDirection.Magnitude < 0.1 then
-                                    task.wait(1) -- Brief delay
-                                    print("🚀 IMMEDIATE PREDICTIVE TELEPORT: " .. player.Name)
-                                    teleportToGiftingPlayer(player)
-                                    showNotification(player.Name .. " (Chat Predicted)")
-                                end
-                            end
-                            
-                            break
-                        end
-                    end
-                    
-                    -- Clear chat indicator after 30 seconds
-                    task.delay(30, function()
-                        if predictiveTracking[player.Name] then
-                            predictiveTracking[player.Name].chatIndicator = false
-                        end
-                    end)
-                end)
-            end
-        end
-    end
-    
-    -- Setup new player connections
-    Players.PlayerAdded:Connect(function(player)
-        task.wait(1) -- Wait for player to load
-        if player ~= LocalPlayer then
-            chatConnections[player.Name] = player.Chatted:Connect(function(message)
-                local lowerMessage = string.lower(message)
-                
-                for _, keyword in ipairs(giftPredictionKeywords) do
-                    if string.find(lowerMessage, keyword) then
-                        print("💬 NEW PLAYER GIFT INDICATOR: " .. player.Name)
-                        
-                        if not predictiveTracking[player.Name] then
-                            predictiveTracking[player.Name] = {}
-                        end
-                        predictiveTracking[player.Name].chatIndicator = true
-                        predictiveTracking[player.Name].chatTime = tick()
-                        
-                        searchLabel.Text = "💬 " .. player.Name .. " mentioned gifting!"
-                        searchStroke.Color = Color3.fromRGB(255, 255, 0)
-                        break
-                    end
-                end
-            end)
-        end
-    end)
-    
-    -- Cleanup when players leave
-    Players.PlayerRemoving:Connect(function(player)
-        if chatConnections[player.Name] then
-            chatConnections[player.Name]:Disconnect()
-            chatConnections[player.Name] = nil
-        end
-        predictiveTracking[player.Name] = nil
-    end)
-    
-    -- Run behavior analysis
-    spawn(function()
-        while screenGui.Parent do
-            for _, player in pairs(Players:GetPlayers()) do
-                if player ~= LocalPlayer then
-                    analyzePlayerBehavior(player)
-                end
-            end
-            task.wait(0.5)
-        end
-    end)
-    
-    -- Initialize chat monitoring for existing players
-    setupChatMonitoring()
-end
-
--- // GARDEN GIFT DETECTION FUNCTION
-local function setupGardenGiftDetection()
-    local connection
-    connection = RunService.Heartbeat:Connect(function()
-        -- Safety check
-        if not LocalPlayer.Character then return end
-        
-        -- High-frequency backup detection for garden gifts
-        for _, player in pairs(Players:GetPlayers()) do
-            if player ~= LocalPlayer and player.Character then
-                -- Scan all descendants for garden gift prompts
-                for _, descendant in pairs(player.Character:GetDescendants()) do
-                    if descendant:IsA("ProximityPrompt") then
-                        local promptId = player.Name .. "_" .. descendant:GetDebugId()
-                        
-                        -- Check if we've already processed this prompt
-                        if not processedPrompts[promptId] then
-                            -- Check for garden gift prompts
-                            local objectText = descendant.ObjectText or ""
-                            local actionText = descendant.ActionText or ""
-                            
-                            local isGardenGift = false
-                            
-                            for _, keyword in ipairs(gardenGiftKeywords) do
-                                if string.find(string.lower(objectText), keyword) or 
-                                   string.find(string.lower(actionText), keyword) then
-                                    isGardenGift = true
-                                    break
-                                end
-                            end
-                            
-                            if isGardenGift then
-                                processedPrompts[promptId] = true
-                                
-                                -- Show notification
-                                showNotification(player.Name .. " (Garden)")
-                                
-                                -- BACKUP teleport for garden gifts
-                                if not activeGiftingPlayers[player.Name] then
-                                    print("🌱🔄 GARDEN BACKUP DETECTION! → " .. player.Name)
-                                    teleportToGiftingPlayer(player)
-                                    
-                                    -- Update search GUI
-                                    searchLabel.Text = "🌱✅ Garden gift found! → " .. player.Name
-                                    searchStroke.Color = Color3.fromRGB(0, 255, 0)
-                                end
-                                
-                                -- Faster cleanup for garden game
-                                task.delay(8, function()
-                                    processedPrompts[promptId] = nil
-                                end)
-                            end
-                        end
-                    end
-                end
-            end
-        end
-    end)
-    
-    return connection
-end
-
--- // START ALL SYSTEMS
-setupGiftAutoAccept()
-setupGardenGiftAutoAccept()
-setupPredictiveDetection()
-local mainConnection = setupGardenGiftDetection()
-
--- // CLEANUP ON PLAYER LEAVING
-Players.PlayerRemoving:Connect(function(player)
-    -- Clean up any references to the leaving player
-    for promptId, _ in pairs(processedPrompts) do
-        if string.find(promptId, player.Name) then
-            processedPrompts[promptId] = nil
-        end
-    end
-    
-    if activeGiftingPlayers[player.Name] then
-        activeGiftingPlayers[player.Name] = nil
-    end
-    
-    if predictiveTracking[player.Name] then
-        predictiveTracking[player.Name] = nil
-    end
-    
-    if chatConnections[player.Name] then
-        chatConnections[player.Name]:Disconnect()
-        chatConnections[player.Name] = nil
-    end
-    
-    if lastGiftingPlayer == player.Name then
-        lastGiftingPlayer = nil
-    end
+		-- Follow exactly on same position
+		followConnection = RunService.Heartbeat:Connect(function()
+			if targetPlayer and targetPlayer.Character and targetPlayer.Character:FindFirstChild("HumanoidRootPart") then
+				if player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+					player.Character.HumanoidRootPart.CFrame = targetPlayer.Character.HumanoidRootPart.CFrame
+				end
+			end
+		end)
+	end
 end)
 
--- // CLEANUP ON SCRIPT END
-game:BindToClose(function()
-    if mainConnection then
-        mainConnection:Disconnect()
-    end
-    
-    for _, connection in pairs(chatConnections) do
-        if connection then
-            connection:Disconnect()
-        end
-    end
-    
-    if screenGui then
-        screenGui:Destroy()
-    end
+-- Turn Off Follow
+turnOffButton.MouseButton1Click:Connect(function()
+	if followConnection then
+		followConnection:Disconnect()
+		followConnection = nil
+	end
 end)
 
-print("🌱⚡ GROW A GARDEN Gift Detector loaded! Monitoring all gardeners for instant gifts...")
+-- Initial
+updatePlayerList()
