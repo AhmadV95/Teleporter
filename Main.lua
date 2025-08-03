@@ -145,13 +145,14 @@ local dropdownCorner = Instance.new("UICorner")
 dropdownCorner.CornerRadius = UDim.new(0, 5)
 dropdownCorner.Parent = dropdownButton
 
--- Dropdown Frame
+-- Dropdown Frame (Above Everything)
 local dropdownFrame = Instance.new("Frame")
 dropdownFrame.Size = UDim2.new(1, -20, 0, 0)
 dropdownFrame.Position = UDim2.new(0, 10, 0, 90)
 dropdownFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
 dropdownFrame.BorderSizePixel = 0
 dropdownFrame.Visible = false
+dropdownFrame.ZIndex = 5
 dropdownFrame.Parent = frame
 local dropdownFrameCorner = Instance.new("UICorner")
 dropdownFrameCorner.CornerRadius = UDim.new(0, 5)
@@ -163,6 +164,7 @@ avatarImage.Size = UDim2.new(0, 100, 0, 100)
 avatarImage.Position = UDim2.new(0.5, -50, 0, 150)
 avatarImage.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
 avatarImage.Parent = frame
+avatarImage.ZIndex = 1
 local avatarCorner = Instance.new("UICorner")
 avatarCorner.CornerRadius = UDim.new(0, 8)
 avatarCorner.Parent = avatarImage
@@ -195,9 +197,15 @@ local turnOffCorner = Instance.new("UICorner")
 turnOffCorner.CornerRadius = UDim.new(0, 5)
 turnOffCorner.Parent = turnOffButton
 
--- Update Player List
+-- Update Player List Function
 local function updatePlayerList()
-	dropdownFrame:ClearAllChildren()
+	-- Clear old buttons
+	for _, child in ipairs(dropdownFrame:GetChildren()) do
+		if child:IsA("TextButton") then
+			child:Destroy()
+		end
+	end
+
 	local y = 0
 	for _, plr in ipairs(Players:GetPlayers()) do
 		if plr ~= player then
@@ -209,7 +217,9 @@ local function updatePlayerList()
 			btn.Font = Enum.Font.Gotham
 			btn.TextSize = 16
 			btn.Text = plr.Name
+			btn.ZIndex = 6
 			btn.Parent = dropdownFrame
+
 			btn.MouseButton1Click:Connect(function()
 				targetPlayer = plr
 				dropdownButton.Text = plr.Name .. " ▼"
@@ -217,6 +227,7 @@ local function updatePlayerList()
 				if isReady then avatarImage.Image = content end
 				dropdownFrame.Visible = false
 			end)
+
 			y += 30
 		end
 	end
